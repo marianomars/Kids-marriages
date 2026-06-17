@@ -1,13 +1,14 @@
 # Child Marriage Risk Dashboard - Kenya
-# Data Science Project - Phase 4 Deployment
+# Updated version - uses pickle instead of joblib
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
+import pickle
 import json
 import plotly.graph_objects as go
 import plotly.express as px
+import os
 
 # Set up the page
 st.set_page_config(
@@ -20,23 +21,41 @@ st.set_page_config(
 @st.cache_resource
 def load_artifacts():
     try:
-        model = joblib.load('child_marriage_model.pkl')
-        scaler = joblib.load('scaler.pkl')
+        # Load model using pickle
+        with open('child_marriage_model.pkl', 'rb') as f:
+            model = pickle.load(f)
+        
+        # Load scaler using pickle
+        with open('scaler.pkl', 'rb') as f:
+            scaler = pickle.load(f)
+        
+        # Load feature names
         with open('feature_names.json', 'r') as f:
             features = json.load(f)
+        
+        # Load metrics
         with open('model_metrics.json', 'r') as f:
             metrics = json.load(f)
+        
         return model, scaler, features, metrics
-    except FileNotFoundError:
-        st.error("""
-        Model files not found. Please make sure these files are in the same folder:
+    except FileNotFoundError as e:
+        st.error(f"""
+        Model file not found: {e}
+        
+        Please make sure these files are in the same folder:
         - child_marriage_model.pkl
         - scaler.pkl
         - feature_names.json
         - model_metrics.json
+        
+        If you haven't created these files yet, run the model generation script first.
         """)
         st.stop()
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        st.stop()
 
+# Load the artifacts
 model, scaler, feature_names, metrics = load_artifacts()
 
 # Title
@@ -107,8 +126,12 @@ input_data = pd.DataFrame([[
 ]], columns=feature_names)
 
 # Make prediction
-input_scaled = scaler.transform(input_data)
-prediction = model.predict(input_scaled)[0]
+try:
+    input_scaled = scaler.transform(input_data)
+    prediction = model.predict(input_scaled)[0]
+except Exception as e:
+    st.error(f"Error making prediction: {e}")
+    st.stop()
 
 # Determine risk level
 if prediction < 15:
@@ -213,11 +236,19 @@ st.markdown("- Radio campaigns on girls' education rights")
 st.markdown("---")
 st.subheader("What Drives Child Marriage?")
 
-fi_data = metrics.get('feature_importance', [
-    {'feature': 'No Education', 'importance': 0.31},
-    {'feature': 'Rural Population', 'importance': 0.22},
-    {'feature': 'Poverty', 'importance': 0.18}
-])
+# Try to load feature importance, use default if not available
+try:
+    fi_data = metrics.get('feature_importance', [
+        {'feature': 'No Education', 'importance': 0.31},
+        {'feature': 'Rural Population', 'importance': 0.22},
+        {'feature': 'Poverty', 'importance': 0.18}
+    ])
+except:
+    fi_data = [
+        {'feature': 'No Education', 'importance': 0.31},
+        {'feature': 'Rural Population', 'importance': 0.22},
+        {'feature': 'Poverty', 'importance': 0.18}
+    ]
 
 fi_df = pd.DataFrame(fi_data)
 fig2 = px.bar(fi_df, x='importance', y='feature', orientation='h',
@@ -229,7 +260,7 @@ st.plotly_chart(fig2, use_container_width=True)
 # Disclaimer
 st.markdown("---")
 st.caption(f"""
-Model Performance: Mean Absolute Error is {metrics.get('test_mae', 6.8):.1f} percentage points.
+Model Performance: Mean Absolute Error is approximately {metrics.get('test_mae', 6.8):.1f} percentage points.
 Predictions may have error margins of approximately plus or minus {metrics.get('test_mae', 6.8):.1f} percent.
 
 Need help? Contact your local children's office or police station.
